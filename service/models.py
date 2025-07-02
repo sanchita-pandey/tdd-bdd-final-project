@@ -73,8 +73,8 @@ class Product(db.Model):
     ##################################################
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.String(250), nullable=False)
-    price = db.Column(db.Numeric, nullable=False)
+    description = db.Column(db.String(250), nullable=True)
+    price = db.Column(db.Numeric, nullable=True)
     available = db.Column(db.Boolean(), nullable=False, default=True)
     category = db.Column(
         db.Enum(Category), nullable=False, server_default=(Category.UNKNOWN.name)
@@ -118,9 +118,9 @@ class Product(db.Model):
             "id": self.id,
             "name": self.name,
             "description": self.description,
-            "price": str(self.price),
+            "price": str(self.price) if self.price is not None else None,
             "available": self.available,
-            "category": self.category.name  # convert enum to string
+            "category": self.category.name if self.category is not None else None
         }
 
     def deserialize(self, data: dict):
@@ -131,21 +131,22 @@ class Product(db.Model):
         """
         try:
             self.name = data["name"]
-            self.description = data["description"]
-            self.price = Decimal(data["price"])
-            if isinstance(data["available"], bool):
+            self.description = data.get("description")
+            price_val = data.get("price")
+            self.price = Decimal(price_val) if price_val is not None else None
+
+            if "available" in data and isinstance(data["available"], bool):
                 self.available = data["available"]
             else:
                 raise DataValidationError(
-                    "Invalid type for boolean [available]: "
-                    + str(type(data["available"]))
+                    "Invalid or missing type for boolean [available]"
                 )
             self.category = getattr(Category, data["category"])  # create enum from string
         except AttributeError as error:
             raise DataValidationError("Invalid attribute: " + error.args[0]) from error
         except KeyError as error:
             raise DataValidationError("Invalid product: missing " + error.args[0]) from error
-        except TypeError as error:
+        except (TypeError, ValueError) as error:
             raise DataValidationError(
                 "Invalid product: body of request contained bad or no data " + str(error)
             ) from error
@@ -160,7 +161,7 @@ class Product(db.Model):
         """Initializes the database session
 
         :param app: the Flask app
-        :type data: Flask
+        :type app: Flask
 
         """
         logger.info("Initializing database")
@@ -201,14 +202,14 @@ class Product(db.Model):
 
         """
         logger.info("Processing name query for %s ...", name)
-        return cls.query.filter(cls.name == name)
+        return cls.query.filter(cls.name == name).all()
 
     @classmethod
     def find_by_price(cls, price: Decimal) -> list:
         """Returns all Products with the given price
 
         :param price: the price to search for
-        :type name: float
+        :type price: Decimal
 
         :return: a collection of Products with that price
         :rtype: list
@@ -218,32 +219,32 @@ class Product(db.Model):
         price_value = price
         if isinstance(price, str):
             price_value = Decimal(price.strip(' "'))
-        return cls.query.filter(cls.price == price_value)
+        return cls.query.filter(cls.price == price_value).all()
 
     @classmethod
     def find_by_availability(cls, available: bool = True) -> list:
         """Returns all Products by their availability
 
         :param available: True for products that are available
-        :type available: str
+        :type available: bool
 
         :return: a collection of Products that are available
         :rtype: list
 
         """
         logger.info("Processing available query for %s ...", available)
-        return cls.query.filter(cls.available == available)
+        return cls.query.filter(cls.available == available).all()
 
     @classmethod
     def find_by_category(cls, category: Category = Category.UNKNOWN) -> list:
         """Returns all Products by their Category
 
-        :param category: values are ['MALE', 'FEMALE', 'UNKNOWN']
-        :type available: enum
+        :param category: the category of the Products to find
+        :type category: enum
 
         :return: a collection of Products that are available
         :rtype: list
 
         """
         logger.info("Processing category query for %s ...", category.name)
-        return cls.query.filter(cls.category == category)
+        return cls.query.filter(cls.category == category).all()

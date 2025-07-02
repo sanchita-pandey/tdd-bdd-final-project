@@ -14,20 +14,12 @@
 
 """
 Test cases for Product Model
-
-Test cases can be run with:
-    nosetests
-    coverage report -m
-
-While debugging just these tests it's convenient to use this:
-    nosetests --stop tests/test_models.py:TestProductModel
-
 """
 import os
 import logging
 import unittest
 from decimal import Decimal
-from service.models import Product, Category, db
+from service.models import Product, Category, db, DataValidationError
 from service import app
 from tests.factories import ProductFactory
 
@@ -35,11 +27,6 @@ DATABASE_URI = os.getenv(
     "DATABASE_URI", "postgresql://postgres:postgres@localhost:5432/postgres"
 )
 
-
-######################################################################
-#  P R O D U C T   M O D E L   T E S T   C A S E S
-######################################################################
-# pylint: disable=too-many-public-methods
 class TestProductModel(unittest.TestCase):
     """Test Cases for Product Model"""
 
@@ -59,16 +46,12 @@ class TestProductModel(unittest.TestCase):
 
     def setUp(self):
         """This runs before each test"""
-        db.session.query(Product).delete()  # clean up the last tests
+        db.session.query(Product).delete()
         db.session.commit()
 
     def tearDown(self):
         """This runs after each test"""
         db.session.remove()
-
-    ######################################################################
-    #  T E S T   C A S E S
-    ######################################################################
 
     def test_create_a_product(self):
         """It should Create a product and assert that it exists"""
@@ -89,56 +72,55 @@ class TestProductModel(unittest.TestCase):
         product = ProductFactory()
         product.id = None
         product.create()
-        # Assert that it was assigned an id and shows up in the database
         self.assertIsNotNone(product.id)
         products = Product.all()
         self.assertEqual(len(products), 1)
-        # Check that it matches the original product
         new_product = products[0]
         self.assertEqual(new_product.name, product.name)
         self.assertEqual(new_product.description, product.description)
-        self.assertEqual(Decimal(new_product.price), product.price)
+        self.assertEqual(new_product.price, product.price)
         self.assertEqual(new_product.available, product.available)
         self.assertEqual(new_product.category, product.category)
 
-   def test_read_a_product(self):
+    def test_read_a_product(self):
         """It should Read a Product"""
         product = ProductFactory()
         product.id = None
         product.create()
         self.assertIsNotNone(product.id)
-        # Fetch it back
         found_product = Product.find(product.id)
-        self.assertEqual(found_product.id,product.id)
-        self.assertEqual(found_product.name,product.name)
-        self.assertEqual(found_prodcut.description,product.description)
-        self.assertEqual(found_product.price,product.price)
+        self.assertEqual(found_product.id, product.id)
+        self.assertEqual(found_product.name, product.name)
+        self.assertEqual(found_product.description, product.description)
+        self.assertEqual(found_product.price, product.price)
 
     def test_update_a_product(self):
         """It should Update a Product"""
         product = ProductFactory()
-         product.id = None
-         product.create()
-         self.assertIsNotNone(product.id)
-         # Change it and save it
-         product.description = "testing"
-         original_id = product.id
-         product.update()
-         self.assertEqual(product.id, original_id)
-         self.assertEqual(product.description,"testing")
-         # Fetch it back and make sure the id hasn't changed
-         # but the data did change
-         products = Product.all()
-         self.assertEqual(len(products), 1)
-         self.assertEqual(products[0].id,original_id)
-         self.assertEqual(products[0].description,"testing")
+        product.id = None
+        product.create()
+        self.assertIsNotNone(product.id)
+        product.description = "testing"
+        original_id = product.id
+        product.update()
+        self.assertEqual(product.id, original_id)
+        self.assertEqual(product.description, "testing")
+        products = Product.all()
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0].id, original_id)
+        self.assertEqual(products[0].description, "testing")
+
+    def test_update_no_id(self):
+        """It should not Update a Product with no id"""
+        product = ProductFactory()
+        product.id = None
+        self.assertRaises(DataValidationError, product.update)
 
     def test_delete_a_product(self):
         """It should Delete a Product"""
         product = ProductFactory()
         product.create()
         self.assertEqual(len(Product.all()), 1)
-        # delete the product and make sure it isn't in the database
         product.delete()
         self.assertEqual(len(Product.all()), 0)
 
@@ -146,11 +128,9 @@ class TestProductModel(unittest.TestCase):
         """It should List all Products in the database"""
         products = Product.all()
         self.assertEqual(products, [])
-        # Create 5 products
         for _ in range(5):
             product = ProductFactory()
             product.create()
-        # See if we get back 5 products
         products = Product.all()
         self.assertEqual(len(products), 5)
 
@@ -162,7 +142,7 @@ class TestProductModel(unittest.TestCase):
         name = products[0].name
         count = len([product for product in products if product.name == name])
         found = Product.find_by_name(name)
-        self.assertEqual(found.count(), count)
+        self.assertEqual(len(found), count)
         for product in found:
             self.assertEqual(product.name, name)
 
@@ -174,9 +154,9 @@ class TestProductModel(unittest.TestCase):
         available = products[0].available
         count = len([product for product in products if product.available == available])
         found = Product.find_by_availability(available)
-        self.assertEqual(found.count(), count)
+        self.assertEqual(len(found), count)
         for product in found:
-            self.assertEqual(product.availbale, available)
+            self.assertEqual(product.available, available)
 
     def test_find_by_category(self):
         """It should Find Products by Category"""
@@ -185,11 +165,48 @@ class TestProductModel(unittest.TestCase):
             product.create()
         category = products[0].category
         count = len([product for product in products if product.category == category])
-        found = Product.find_by_category(cateogry)
-        self.assertEqual(found.count(), count)
+        found = Product.find_by_category(category)
+        self.assertEqual(len(found), count)
         for product in found:
             self.assertEqual(product.category, category)
 
+    def test_find_by_price(self):
+        """It should Find Products by Price"""
+        products = ProductFactory.create_batch(10)
+        for product in products:
+            product.create()
+        price = products[0].price
+        count = len([product for product in products if product.price == price])
+        found = Product.find_by_price(str(price))
+        self.assertEqual(len(found), count)
+        for product in found:
+            self.assertEqual(product.price, price)
 
+    def test_deserialize_missing_data(self):
+        """It should not deserialize a Product with missing data"""
+        data = {"id": 1, "description": "a description"}
+        product = Product()
+        self.assertRaises(DataValidationError, product.deserialize, data)
 
+    def test_deserialize_bad_data(self):
+        """It should not deserialize a Product with bad data"""
+        data = "this is not a dictionary"
+        product = Product()
+        self.assertRaises(DataValidationError, product.deserialize, data)
+
+    def test_deserialize_bad_available(self):
+        """It should not deserialize a Product with bad available data"""
+        test_product = ProductFactory()
+        data = test_product.serialize()
+        data["available"] = "true"
+        product = Product()
+        self.assertRaises(DataValidationError, product.deserialize, data)
+
+    def test_deserialize_bad_category(self):
+        """It should not deserialize a Product with bad category data"""
+        test_product = ProductFactory()
+        data = test_product.serialize()
+        data["category"] = "DOG"
+        product = Product()
+        self.assertRaises(DataValidationError, product.deserialize, data)
 
